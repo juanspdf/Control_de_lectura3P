@@ -1,0 +1,124 @@
+services:
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: ecommerce-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Order Service
+  postgres-order:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres-order
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: order_user
+      POSTGRES_PASSWORD: order_password
+    volumes:
+      - postgres_order_data:/var/lib/postgresql/data
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order_user -d order_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Inventory Service
+  postgres-inventory:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres-inventory
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: inventory_user
+      POSTGRES_PASSWORD: inventory_password
+    volumes:
+      - postgres_inventory_data:/var/lib/postgresql/data
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory_user -d inventory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Order Service
+  order-service:
+    build:
+      context: ../order-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-order-service
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: "postgresql://order_user:order_password@postgres-order:5432/order_db?schema=public"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"
+      RABBITMQ_EXCHANGE: "orders.exchange"
+      RABBITMQ_QUEUE_ORDERS_CREATED: "orders.created.queue"
+      RABBITMQ_QUEUE_ORDERS_RESPONSE: "orders.response.queue"
+      RABBITMQ_ROUTING_KEY_ORDER_CREATED: "order.created"
+      RABBITMQ_ROUTING_KEY_STOCK_RESERVED: "stock.reserved"
+      RABBITMQ_ROUTING_KEY_STOCK_REJECTED: "stock.rejected"
+      PORT: 3001
+      NODE_ENV: production
+    depends_on:
+      postgres-order:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  # Inventory Service
+  inventory-service:
+    build:
+      context: ../inventory-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-inventory-service
+    ports:
+      - "3002:3002"
+    environment:
+      DATABASE_URL: "postgresql://inventory_user:inventory_password@postgres-inventory:5432/inventory_db?schema=public"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"
+      RABBITMQ_EXCHANGE: "orders.exchange"
+      RABBITMQ_QUEUE_ORDERS_CREATED: "orders.created.queue"
+      RABBITMQ_ROUTING_KEY_ORDER_CREATED: "order.created"
+      RABBITMQ_ROUTING_KEY_STOCK_RESERVED: "stock.reserved"
+      RABBITMQ_ROUTING_KEY_STOCK_REJECTED: "stock.rejected"
+      PORT: 3002
+      NODE_ENV: production
+    depends_on:
+      postgres-inventory:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+  postgres_order_data:
+  postgres_inventory_data:

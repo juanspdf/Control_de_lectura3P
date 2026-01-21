@@ -1,0 +1,5 @@
+# Docker volumes
+*.log
+
+# Environment files (if any local overrides)
+.env
