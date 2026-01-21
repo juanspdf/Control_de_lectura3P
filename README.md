@@ -345,6 +345,9 @@ Este proyecto es parte de un trabajo académico.
 
 ## 👥 Autores
 
+- Pamela Chipe
+- Juan Pasquel
+
 - Control de Lectura 3P - Sistemas Distribuidos
 
 ---
